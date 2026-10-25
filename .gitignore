@@ -1,0 +1,5 @@
+.env
+*.env
+__pycache__/
+predictions.csv
+my_test_input.csv
