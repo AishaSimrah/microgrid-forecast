@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Microgrid load forecast</title>
+<style>
+:root {
+  --bg: #ECF0F4; --card: #FFFFFF; --ink: #13202B; --ink2: #44566A; --muted: #637482;
+  --rule: #D3DCE3; --grid: #E6ECF0; --line: #0B3C5D; --area: rgba(11,60,93,.09);
+  --store: #0F7048; --store-bg: #E1F3EA; --main: #2A6EC4; --main-bg: #E6EEF9;
+  --alert: #C62828; --alert-bg: #FDECEA; --warn: #6E4600; --warn-bg: #FFF3D6;
+  --band: rgba(15,112,72,.07); --focus: #1A5FD0; --shadow: 0 1px 2px rgba(19,32,43,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0C141B; --card: #15212B; --ink: #E7EEF3; --ink2: #B2C0CB; --muted: #8B9CA9;
+    --rule: #2B3A47; --grid: #1F2D38; --line: #7FC3F0; --area: rgba(127,195,240,.12);
+    --store: #2FA477; --store-bg: #153527; --main: #5A96E6; --main-bg: #17283E;
+    --alert: #FF7B72; --alert-bg: #3A1B1B; --warn: #F2C26B; --warn-bg: #3A2D10;
+    --band: rgba(47,164,119,.10); --focus: #8AB4F8; --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; }
+header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 8px 24px; margin-bottom: 20px; }
+h1 { font-size: 1.6rem; line-height: 1.2; margin: 0; font-weight: 700; letter-spacing: -.01em; }
+header p { margin: 4px 0 0; color: var(--ink2); max-width: 60ch; }
+.status { color: var(--muted); font-size: .875rem; }
+h2 { font-size: 1rem; margin: 0; font-weight: 650; }
+.card { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 18px; box-shadow: var(--shadow); min-width: 0; }
+.cards { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 14px; }
+.sub { color: var(--ink2); font-size: .875rem; }
+.muted { color: var(--muted); font-size: .8125rem; }
+
+/* banners */
+#alerts { display: grid; gap: 10px; margin-bottom: 14px; }
+.banner { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 8px; border: 1px solid; font-size: .9375rem; }
+.banner svg { flex: none; margin-top: 2px; }
+.banner.alert { background: var(--alert-bg); border-color: var(--alert); color: var(--ink); }
+.banner.alert svg { color: var(--alert); }
+.banner.warn { background: var(--warn-bg); border-color: var(--warn); color: var(--ink); }
+.banner.warn svg { color: var(--warn); }
+.banner b { font-weight: 650; }
+
+/* state cards */
+.badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 10px; border-radius: 999px; font-weight: 700; font-size: 1.05rem; }
+.badge.store { background: var(--store-bg); color: var(--store); }
+.badge.main { background: var(--main-bg); color: var(--main); }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: .8125rem; font-weight: 650; background: var(--alert-bg); color: var(--alert); border: 1px solid var(--alert); margin-left: 8px; vertical-align: middle; }
+.big { font-size: 2.4rem; line-height: 1.1; font-weight: 700; margin: 12px 0 2px; letter-spacing: -.02em; }
+.big small { font-size: 1rem; font-weight: 600; color: var(--ink2); margin-left: 4px; }
+.reason { margin-top: 10px; color: var(--ink2); font-size: .875rem; }
+.bar { height: 12px; border-radius: 6px; background: var(--grid); overflow: hidden; margin: 12px 0 8px; border: 1px solid var(--rule); }
+.bar > i { display: block; height: 100%; background: var(--store); border-radius: 5px; transition: width .25s ease; }
+.bar.low > i { background: var(--alert); }
+dl.stats { margin: 10px 0 0; display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; }
+dl.stats dt { color: var(--ink2); }
+dl.stats dd { margin: 0; font-weight: 650; text-align: right; }
+
+/* chart */
+.chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: var(--ink2); padding: 6px 14px; font: inherit; font-size: .875rem; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--card); font-weight: 650; }
+#chartbox { position: relative; }
+#chart { position: relative; outline-offset: 4px; touch-action: pan-y; }
+#chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+#chart text { font: 11.5px "Segoe UI", system-ui, sans-serif; fill: var(--muted); }
+#chart text.th { fill: var(--ink2); paint-order: stroke; stroke: var(--card); stroke-width: 4px; stroke-linejoin: round; }
+#tip { position: absolute; pointer-events: none; background: var(--card); color: var(--ink); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; font-size: .8125rem; line-height: 1.45; box-shadow: 0 4px 14px rgba(0,0,0,.18); display: none; z-index: 3; white-space: nowrap; }
+#tip b { font-size: .875rem; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; color: var(--ink2); font-size: .8125rem; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+.sw.store { background: var(--store); }
+.sw.main { background: repeating-linear-gradient(135deg, var(--main) 0 3px, color-mix(in srgb, var(--main) 55%, var(--card)) 3px 6px); }
+.sw.band { background: var(--band); border: 1px solid var(--rule); }
+.sw.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--alert); box-shadow: 0 0 0 2px var(--card); }
+.tablewrap { overflow: auto; max-height: 420px; border: 1px solid var(--rule); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: .875rem; }
+th, td { padding: 7px 12px; text-align: left; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th { position: sticky; top: 0; background: var(--card); color: var(--ink2); font-weight: 650; border-bottom: 1px solid var(--rule); }
+td.n, th.n { text-align: right; }
+tr.over td { background: var(--alert-bg); }
+
+/* lower row */
+.lower { display: grid; gap: 14px; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); margin-top: 14px; align-items: start; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--rule); margin: 10px 0 14px; }
+.tabs button { border: 0; background: transparent; color: var(--ink2); padding: 8px 14px; font: inherit; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; }
+.tabs button[aria-selected="true"] { color: var(--ink); font-weight: 650; border-bottom-color: var(--main); }
+.drop { display: block; border: 2px dashed var(--rule); border-radius: 10px; padding: 22px 16px; text-align: center; color: var(--ink2); cursor: pointer; }
+.drop:hover, .drop.over { border-color: var(--main); background: var(--main-bg); }
+.drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.drop:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
+label.f { display: grid; gap: 4px; font-size: .875rem; color: var(--ink2); }
+input[type=number], input[type=datetime-local], input[type=text] {
+  font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; width: 100%; min-width: 0;
+}
+.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-top: 12px; }
+.row > * { min-width: 0; }
+button.btn { font: inherit; font-weight: 650; padding: 9px 16px; border-radius: 8px; border: 1px solid var(--rule); background: var(--card); color: var(--ink); cursor: pointer; }
+button.btn.primary { background: var(--ink); color: var(--card); border-color: var(--ink); }
+button.btn:disabled { opacity: .55; cursor: progress; }
+.formtable { max-height: 340px; overflow: auto; border: 1px solid var(--rule); border-radius: 8px; margin-top: 12px; }
+.formtable table td, .formtable table th { padding: 4px 6px; }
+.formtable input { padding: 4px 6px; }
+.formtable td:first-child { color: var(--ink2); font-size: .8125rem; }
+#log { list-style: none; margin: 10px 0 0; padding: 0; max-height: 420px; overflow: auto; font-size: .8125rem; }
+#log li { display: grid; grid-template-columns: 88px 1fr; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--grid); }
+#log time { color: var(--muted); }
+#log li.alert b, #log li.alert span { color: var(--alert); }
+#log li.warn span { color: var(--warn); }
+#log b { font-weight: 650; }
+.loading { display: flex; align-items: center; justify-content: center; height: 300px; color: var(--ink2); }
+
+@media (max-width: 900px) {
+  .cards { grid-template-columns: 1fr; }
+  .lower { grid-template-columns: 1fr; }
+}
+@media (max-width: 520px) {
+  .wrap { padding: 16px 12px 40px; }
+  h1 { font-size: 1.35rem; }
+  .big { font-size: 2rem; }
+  .card { padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Microgrid load forecast</h1>
+      <p>Predicts demand for the next 24 hours and decides when the grid should run from storage or from the main grid.</p>
+    </div>
+    <div class="status" id="status" aria-live="polite">Starting up</div>
+  </header>
+
+  <div id="alerts" aria-live="polite"></div>
+
+  <section class="cards" aria-label="Current state">
+    <div class="card" id="cardState"></div>
+    <div class="card" id="cardBattery"></div>
+    <div class="card" id="cardWindow"></div>
+  </section>
+
+  <section class="card" aria-labelledby="chartTitle">
+    <div class="chart-head">
+      <h2 id="chartTitle">Predicted demand (kW)</h2>
+      <div class="seg" role="group" aria-label="View">
+        <button type="button" id="vChart" aria-pressed="true">Chart</button>
+        <button type="button" id="vTable" aria-pressed="false">Table</button>
+      </div>
+    </div>
+    <div id="chartbox">
+      <div id="chart" tabindex="0"></div>
+      <div id="tip" role="presentation"></div>
+      <div id="tablebox" hidden></div>
+    </div>
+    <div class="legend" id="legend">
+      <span><i class="sw store"></i>Renewable storage mode</span>
+      <span><i class="sw main"></i>Main grid mode</span>
+      <span><i class="sw dot"></i>Overload alert (200 kW or more)</span>
+      <span><i class="sw band"></i>Evening peak 18:00 to 22:00</span>
+    </div>
+    <p class="muted" id="hint" style="margin:10px 0 0">Select an hour on the chart, or press the left and right arrow keys, to see its grid state.</p>
+  </section>
+
+  <div class="lower">
+    <section class="card" aria-labelledby="inTitle">
+      <h2 id="inTitle">Forecast input</h2>
+      <div class="tabs" role="tablist" aria-label="Input method">
+        <button type="button" role="tab" id="tabUp" aria-selected="false" aria-controls="panUp">Upload CSV</button>
+        <button type="button" role="tab" id="tabForm" aria-selected="true" aria-controls="panForm">Enter data</button>
+      </div>
+
+      <div id="panUp" role="tabpanel" aria-labelledby="tabUp" hidden>
+        <label class="drop" id="drop">
+          <input type="file" id="file" accept=".csv,text/csv">
+          <strong>Choose a CSV file</strong> or drop it here
+          <div class="muted" style="margin-top:6px">Columns: timestamp, ambient_temp_c, humidity_pct, solar_irradiance_wm2</div>
+        </label>
+        <p class="muted" id="upInfo" style="margin:10px 0 0">No file chosen. Missing values are filled in automatically.</p>
+        <div class="row">
+          <label class="f" style="width:140px">Hours to forecast
+            <input type="number" id="hours" min="1" max="168" value="24">
+          </label>
+        </div>
+      </div>
+
+      <div id="panForm" role="tabpanel" aria-labelledby="tabForm">
+        <div class="row" style="margin-top:0">
+          <label class="f" style="width:210px">First hour
+            <input type="datetime-local" id="start" step="3600">
+          </label>
+          <button type="button" class="btn" id="sample">Load sample day</button>
+        </div>
+        <div class="formtable"><table id="ftable">
+          <thead><tr><th>Hour</th><th class="n">Temp (°C)</th><th class="n">Humidity (%)</th><th class="n">Solar (W/m²)</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <p class="muted" style="margin:8px 0 0">Leave a cell empty to have it filled in from the neighbouring hours.</p>
+      </div>
+
+      <div class="row">
+        <button type="button" class="btn primary" id="run">Run forecast</button>
+        <span class="muted" id="runInfo"></span>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="logTitle">
+      <div class="chart-head" style="margin-bottom:0">
+        <h2 id="logTitle">System log</h2>
+        <button type="button" class="btn" id="clearLog" style="padding:5px 12px;font-weight:500">Clear</button>
+      </div>
+      <ul id="log"></ul>
+    </section>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (s) => document.querySelector(s);
+  const STORE = "Renewable Storage Mode";
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const NEED = ["timestamp", "ambient_temp_c", "humidity_pct", "solar_irradiance_wm2"];
+
+  // One real day from the sample test file
+  const SAMPLE = {
+    start: "2015-06-16T15:00",
+    rows: [[35.66,56.38,169],[34.55,54.73,112],[34.35,49.34,52],[35.37,56.92,16],[32.13,56.42,2],
+      [29.96,59.13,0],[29.05,57.81,0],[26.46,56.26,0],[27.87,57.77,0],[24.58,65.01,0],
+      [25.47,61.99,0],[22.91,60.79,0],[23.8,63.52,4],[24.53,63.6,29],[26.23,59.96,84],
+      [25.95,66.33,142],[25.68,61.19,203],[31.68,62.35,258],[31.74,60.43,302],[31.19,54.46,329],
+      [31.54,59.23,330],[34.64,55.02,319],[36.63,55.45,302],[37.93,45.52,272]]
+  };
+
+  const S = { result: null, sel: 0, hover: null, view: "chart", tab: "form", uploaded: null, busy: false };
+
+  // ---------- helpers ----------
+  const hourOf = (ts) => +ts.slice(11, 13);
+  const hhmm = (ts) => ts.slice(11, 16);
+  const dayOf = (ts) => `${+ts.slice(8, 10)} ${MONTHS[+ts.slice(5, 7) - 1]}`;
+  const fmt1 = (v) => (Math.round(v * 10) / 10).toFixed(1);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const isStore = (r) => r.grid_mode === STORE;
+  const modeName = (r) => (isStore(r) ? "Renewable storage" : "Main grid");
+
+  const ICON = {
+    bolt: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="16" height="10" rx="2"/><path d="M22 11v2"/><path d="M11 9l-2 3h4l-2 3"/></svg>',
+    plug: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v5M15 2v5"/><path d="M6 7h12v4a6 6 0 0 1-12 0z"/><path d="M12 17v5"/></svg>',
+    warn: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
+    small: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>'
+  };
+
+  // ---------- log ----------
+  let logs = [];
+  try { logs = JSON.parse(localStorage.getItem("mg_logs") || "[]"); } catch (e) { logs = []; }
+  function log(level, msg) {
+    logs.unshift({ t: new Date().toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }), level, msg });
+    logs = logs.slice(0, 100);
+    try { localStorage.setItem("mg_logs", JSON.stringify(logs)); } catch (e) { /* storage unavailable */ }
+    renderLog();
+  }
+  function renderLog() {
+    $("#log").innerHTML = logs.length
+      ? logs.map((l) => `<li class="${l.level}"><time>${esc(l.t)}</time><span>${l.level === "alert" ? "<b>Alert:</b> " : ""}${esc(l.msg)}</span></li>`).join("")
+      : '<li><time></time><span class="muted">Nothing logged yet.</span></li>';
+  }
+
+  // ---------- input: form ----------
+  const tbody = $("#ftable tbody");
+  function buildFormRows() {
+    tbody.innerHTML = "";
+    for (let i = 0; i < 24; i++) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td></td>` + ["Temperature", "Humidity", "Solar irradiance"].map((n) =>
+        `<td><input type="number" step="any" inputmode="decimal" aria-label="${n} for hour ${i + 1}"></td>`).join("");
+      tbody.appendChild(tr);
+    }
+  }
+  function startDate() {
+    const v = $("#start").value;
+    if (!v) return null;
+    const m = v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2})/);
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4]) : null;
+  }
+  const pad = (n) => String(n).padStart(2, "0");
+  function stamp(ms) {
+    const d = new Date(ms);
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:00:00`;
+  }
+  function labelFormRows() {
+    const s = startDate();
+    [...tbody.rows].forEach((tr, i) => {
+      tr.cells[0].textContent = s === null ? `Hour ${i + 1}` : `${dayOf(stamp(s + i * 3600000))} ${pad(new Date(s + i * 3600000).getUTCHours())}:00`;
+    });
+  }
+  function loadSample() {
+    $("#start").value = SAMPLE.start;
+    [...tbody.rows].forEach((tr, i) => {
+      for (let c = 0; c < 3; c++) tr.cells[c + 1].firstChild.value = SAMPLE.rows[i][c];
+    });
+    labelFormRows();
+    log("info", "Loaded the sample day (24 hours from the test data).");
+  }
+  function formData() {
+    const s = startDate();
+    if (s === null) throw new Error("Pick the first hour before running the forecast.");
+    return [...tbody.rows].map((tr, i) => ({
+      timestamp: stamp(s + i * 3600000),
+      ambient_temp_c: tr.cells[1].firstChild.value,
+      humidity_pct: tr.cells[2].firstChild.value,
+      solar_irradiance_wm2: tr.cells[3].firstChild.value
+    }));
+  }
+
+  // ---------- input: CSV ----------
+  function parseCSV(text) {
+    const lines = text.replace(/^﻿/, "").split(/\r?\n/).filter((l) => l.trim() !== "");
+    if (lines.length < 2) throw new Error("The file needs a header row and at least one data row.");
+    const split = (l) => {
+      const out = []; let cur = "", q = false;
+      for (const ch of l) {
+        if (ch === '"') q = !q;
+        else if (ch === "," && !q) { out.push(cur); cur = ""; } else cur += ch;
+      }
+      out.push(cur);
+      return out.map((s) => s.trim());
+    };
+    const head = split(lines[0]).map((h) => h.toLowerCase());
+    const miss = NEED.filter((c) => !head.includes(c));
+    if (miss.length) throw new Error("The file is missing column(s): " + miss.join(", ") + ".");
+    const idx = NEED.map((c) => head.indexOf(c));
+    return lines.slice(1).map((l) => {
+      const p = split(l), o = {};
+      NEED.forEach((c, i) => { o[c] = p[idx[i]] === undefined ? "" : p[idx[i]]; });
+      return o;
+    });
+  }
+  function readFile(f) {
+    if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        const rows = parseCSV(String(rd.result));
+        S.uploaded = { name: f.name, rows };
+        $("#upInfo").textContent = `${f.name}: ${rows.length} rows ready.`;
+        log("info", `Loaded ${f.name} with ${rows.length} rows.`);
+      } catch (e) {
+        S.uploaded = null;
+        $("#upInfo").textContent = e.message;
+        log("warn", `${f.name}: ${e.message}`);
+      }
+    };
+    rd.onerror = () => { $("#upInfo").textContent = "That file could not be read."; };
+    rd.readAsText(f);
+  }
+
+  // ---------- run ----------
+  async function run() {
+    if (S.busy) return;
+    let data, hours = 24;
+    try {
+      if (S.tab === "up") {
+        if (!S.uploaded) throw new Error("Choose a CSV file first.");
+        hours = Math.max(1, Math.min(168, parseInt($("#hours").value, 10) || 24));
+        // Send only what the forecast needs (plus a buffer for rows that get cleaned out)
+        data = S.uploaded.rows.slice(0, hours + 24);
+      } else {
+        data = formData();
+      }
+    } catch (e) {
+      showBanners([{ kind: "warn", html: esc(e.message) }]);
+      return;
+    }
+    S.busy = true; $("#run").disabled = true; $("#run").textContent = "Running…";
+    $("#status").textContent = "Forecasting…";
+    log("info", `Forecast requested for ${Math.min(hours, data.length)} hour(s) from ${S.tab === "up" ? S.uploaded.name : "the entered data"}.`);
+    try {
+      const res = await fetch("forecast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data, hours }) });
+      let j = {};
+      try { j = await res.json(); } catch (e) { /* not json */ }
+      if (!res.ok) throw new Error(j.error ? j.error + (j.detail ? ` (${j.detail})` : "") : `The server answered with status ${res.status}.`);
+      S.result = j; S.sel = 0; S.hover = null;
+      afterResult(j);
+    } catch (e) {
+      $("#status").textContent = "Forecast failed";
+      showBanners([{ kind: "alert", html: "<b>Forecast failed.</b> " + esc(e.message) + " Check the input and run it again." }]);
+      log("alert", "Forecast failed: " + e.message);
+    } finally {
+      S.busy = false; $("#run").disabled = false; $("#run").textContent = "Run forecast";
+    }
+  }
+
+  function afterResult(j) {
+    const c = j.cleaning, s = j.summary;
+    if (c.filled_values) log("info", `Cleaning: filled ${c.filled_values} missing weather value(s) from neighbouring hours.`);
+    if (c.dropped_rows) log("warn", `Cleaning: skipped ${c.dropped_rows} row(s) with an unreadable timestamp.`);
+    if (c.duplicates_removed) log("warn", `Cleaning: removed ${c.duplicates_removed} duplicate timestamp(s).`);
+    if (c.rows_in > c.rows_used + c.dropped_rows + c.duplicates_removed) log("info", `Forecasting the first ${c.rows_used} of ${c.rows_in} rows.`);
+    log("info", `Forecast ready: peak ${fmt1(s.peak_kw)} kW at ${hhmm(s.peak_time)}, ${s.storage_hours} of ${j.forecast.length} hours on storage.`);
+    j.forecast.filter((r) => r.overload_alert).forEach((r) =>
+      log("alert", `Critical overload at ${hhmm(r.timestamp)}, ${dayOf(r.timestamp)}: ${fmt1(r.predicted_demand_kw)} kW.`));
+    const dep = j.forecast.find((r) => r.battery_depleted);
+    if (dep) log("warn", `Battery runs out at ${hhmm(dep.timestamp)}, ${dayOf(dep.timestamp)}.`);
+    $("#status").textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    render();
+  }
+
+  // ---------- render ----------
+  function showBanners(list) {
+    $("#alerts").innerHTML = list.map((b) => `<div class="banner ${b.kind}" role="${b.kind === "alert" ? "alert" : "status"}">${ICON.warn}<div>${b.html}</div></div>`).join("");
+  }
+
+  function render() {
+    const r = S.result;
+    if (!r) return;
+    const f = r.forecast, s = r.summary, banners = [];
+    if (s.overload_hours) {
+      const worst = f.reduce((a, b) => (b.predicted_demand_kw > a.predicted_demand_kw ? b : a));
+      banners.push({ kind: "alert", html: `<b>Critical overload alert.</b> ${s.overload_hours} of ${f.length} hours are at or above 200 kW. The highest is ${fmt1(worst.predicted_demand_kw)} kW at ${hhmm(worst.timestamp)} on ${dayOf(worst.timestamp)}.` });
+    }
+    const dep = f.find((x) => x.battery_depleted);
+    if (dep) banners.push({ kind: "warn", html: `<b>Battery runs out.</b> At ${hhmm(dep.timestamp)} on ${dayOf(dep.timestamp)} the simulated battery is empty, so storage mode could not cover the demand from then on (${s.depleted_hours} hour${s.depleted_hours > 1 ? "s" : ""}).` });
+    showBanners(banners);
+    renderCards();
+    drawChart();
+    renderTable();
+  }
+
+  function renderCards() {
+    const r = S.result, f = r.forecast, row = f[S.sel], s = r.summary, b = r.battery;
+    const store = isStore(row), h = hourOf(row.timestamp);
+    const why = [];
+    if (row.predicted_demand_kw > 160) why.push("demand is above 160 kW");
+    if (h >= 18 && h <= 22) why.push("it is inside the 18:00 to 22:00 peak window");
+    const reason = store ? "Storage because " + why.join(" and ") + "." : "Main grid because demand is at or below 160 kW and the hour is outside 18:00 to 22:00.";
+    $("#cardState").innerHTML = `
+      <h2>Grid state</h2>
+      <div style="margin-top:10px"><span class="badge ${store ? "store" : "main"}">${store ? ICON.bolt : ICON.plug}${store ? "Renewable storage mode" : "Main grid mode"}</span>${row.overload_alert ? `<span class="pill">${ICON.small}Critical overload</span>` : ""}</div>
+      <div class="big">${fmt1(row.predicted_demand_kw)}<small>kW</small></div>
+      <div class="sub">Predicted demand at ${hhmm(row.timestamp)}, ${dayOf(row.timestamp)}</div>
+      <div class="reason">${esc(reason)}</div>`;
+
+    const soc = row.battery_soc_pct;
+    $("#cardBattery").innerHTML = `
+      <h2>Battery state of charge</h2>
+      <div class="big">${fmt1(soc)}<small>%</small></div>
+      <div class="bar ${soc < 20 ? "low" : ""}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${soc}" aria-label="State of charge"><i style="width:${soc}%"></i></div>
+      <div class="sub">After ${hhmm(row.timestamp)}, ${dayOf(row.timestamp)}. Starts at ${fmt1(b.start_soc_pct)}% and ends at ${fmt1(s.end_soc_pct)}%.</div>
+      <div class="muted" style="margin-top:8px">Simulated: ${b.capacity_kwh.toLocaleString()} kWh battery, drained by the forecast while in storage mode, charged ${b.grid_charge_kw} kW on the main grid plus solar.</div>`;
+
+    $("#cardWindow").innerHTML = `
+      <h2>Forecast window</h2>
+      <dl class="stats">
+        <dt>Peak demand</dt><dd>${fmt1(s.peak_kw)} kW at ${hhmm(s.peak_time)}</dd>
+        <dt>Hours on storage</dt><dd>${s.storage_hours} of ${f.length}</dd>
+        <dt>Hours on main grid</dt><dd>${s.main_grid_hours} of ${f.length}</dd>
+        <dt>Overload hours</dt><dd>${s.overload_hours}</dd>
+        <dt>Window</dt><dd>${dayOf(f[0].timestamp)} ${hhmm(f[0].timestamp)} to ${dayOf(f[f.length - 1].timestamp)} ${hhmm(f[f.length - 1].timestamp)}</dd>
+      </dl>`;
+  }
+
+  // ---------- chart ----------
+  let geom = null;
+  function drawChart() {
+    const host = $("#chart"), r = S.result;
+    if (!r || S.view !== "chart") return;
+    const f = r.forecast, n = f.length;
+    const W = Math.max(host.clientWidth, 280), small = W < 560, H = small ? 270 : 320;
+    const m = { l: small ? 38 : 46, r: 14, t: 14 };
+    const stripY = H - 56, stripH = 16, plotB = stripY - 12;
+    const peak = Math.max(...f.map((x) => x.predicted_demand_kw), 0);
+    const ymax = Math.max(250, Math.ceil((peak * 1.06) / 50) * 50);
+    const cw = (W - m.l - m.r) / n;
+    const X = (i) => m.l + (i + 0.5) * cw;
+    const Y = (v) => m.t + (1 - v / ymax) * (plotB - m.t);
+    geom = { m, cw, n, W, H };
+
+    let g = "";
+    for (let v = 0; v <= ymax; v += 50) {
+      g += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/>`;
+      g += `<text x="${m.l - 8}" y="${Y(v) + 4}" text-anchor="end">${v}</text>`;
+    }
+    // peak window bands (hours 18 to 22)
+    for (let i = 0; i < n; i++) {
+      const h = hourOf(f[i].timestamp);
+      if (h >= 18 && h <= 22) {
+        let j = i; while (j + 1 < n && hourOf(f[j + 1].timestamp) <= 22 && hourOf(f[j + 1].timestamp) >= 18) j++;
+        g += `<rect x="${m.l + i * cw}" y="${m.t}" width="${(j - i + 1) * cw}" height="${plotB - m.t}" fill="var(--band)"/>`;
+        i = j;
+      }
+    }
+    // thresholds
+    g += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(160)}" y2="${Y(160)}" stroke="var(--store)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+    g += `<text class="th" x="${W - m.r - 6}" y="${Y(160) + 15}" text-anchor="end">Storage above 160 kW</text>`;
+    g += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(200)}" y2="${Y(200)}" stroke="var(--alert)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+    g += `<text class="th" x="${m.l + 6}" y="${Y(200) - 6}">Overload at 200 kW</text>`;
+    // line + area
+    const pts = f.map((x, i) => `${X(i).toFixed(1)},${Y(x.predicted_demand_kw).toFixed(1)}`);
+    g += `<path d="M${X(0)},${plotB} L${pts.join(" L")} L${X(n - 1)},${plotB} Z" fill="var(--area)"/>`;
+    g += `<path d="M${pts.join(" L")}" fill="none" stroke="var(--line)" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round"/>`;
+    // overload markers
+    const dr = n > 60 ? 2.5 : 4.5;
+    f.forEach((x, i) => { if (x.overload_alert) g += `<circle cx="${X(i)}" cy="${Y(x.predicted_demand_kw)}" r="${dr}" fill="var(--alert)" stroke="var(--card)" stroke-width="2"/>`; });
+    // dispatch strip
+    g += `<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="var(--main)"/><rect width="3" height="6" fill="color-mix(in srgb, var(--main) 55%, var(--card))"/></pattern></defs>`;
+    f.forEach((x, i) => {
+      g += `<rect x="${m.l + i * cw + 1}" y="${stripY}" width="${Math.max(cw - 2, 1)}" height="${stripH}" rx="2" fill="${isStore(x) ? "var(--store)" : "url(#hatch)"}"/>`;
+    });
+    // x labels
+    const step = n <= 26 ? 3 : n <= 72 ? 6 : 12;
+    f.forEach((x, i) => {
+      const h = hourOf(x.timestamp);
+      if (h % step === 0 && (cw * step > 22 || h % (step * 2) === 0)) {
+        g += `<text x="${X(i)}" y="${stripY + stripH + 16}" text-anchor="middle">${pad(h)}:00</text>`;
+      }
+      if (i === 0 || h === 0) g += `<text x="${X(i)}" y="${stripY + stripH + 32}" text-anchor="middle" style="fill:var(--ink2);font-weight:600">${dayOf(x.timestamp)}</text>`;
+    });
+    // hover + selection layers
+    g += `<line id="xh" y1="${m.t}" y2="${stripY + stripH}" stroke="var(--ink2)" stroke-width="1" stroke-dasharray="3 3" style="display:none"/>`;
+    g += `<circle id="hm" r="5.5" fill="var(--line)" stroke="var(--card)" stroke-width="2.5" style="display:none"/>`;
+    g += `<line id="xs" y1="${m.t}" y2="${stripY + stripH}" stroke="var(--ink)" stroke-width="1.5"/>`;
+    g += `<circle id="sm" r="6" fill="var(--card)" stroke="var(--ink)" stroke-width="3"/>`;
+    g += `<rect id="sstrip" y="${stripY - 2}" height="${stripH + 4}" rx="3" fill="none" stroke="var(--ink)" stroke-width="2"/>`;
+
+    host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Line chart of predicted demand for ${n} hours, peaking at ${fmt1(peak)} kilowatts. Use the table view for all values.">${g}</svg>`;
+    placeSelection();
+  }
+
+  function placeSelection() {
+    if (!geom || !S.result) return;
+    const f = S.result.forecast, { m, cw, H } = geom, svg = $("#chart svg");
+    if (!svg) return;
+    const ymax = Math.max(250, Math.ceil((Math.max(...f.map((x) => x.predicted_demand_kw)) * 1.06) / 50) * 50);
+    const plotB = H - 56 - 12;
+    const Y = (v) => m.t + (1 - v / ymax) * (plotB - m.t);
+    const x = m.l + (S.sel + 0.5) * cw;
+    const set = (id, a) => { const el = svg.querySelector(id); if (el) for (const k in a) el.setAttribute(k, a[k]); };
+    set("#xs", { x1: x, x2: x });
+    set("#sm", { cx: x, cy: Y(f[S.sel].predicted_demand_kw) });
+    set("#sstrip", { x: m.l + S.sel * cw, width: cw });
+  }
+
+  function tipHtml(x) {
+    return `<b>${hhmm(x.timestamp)}, ${dayOf(x.timestamp)}</b><br>Demand ${fmt1(x.predicted_demand_kw)} kW<br>${modeName(x)} mode<br>Battery ${fmt1(x.battery_soc_pct)}%${x.overload_alert ? `<br><span style="color:var(--alert);font-weight:650">Critical overload</span>` : ""}`;
+  }
+
+  function idxFromEvent(e) {
+    const rect = $("#chart svg").getBoundingClientRect();
+    const px = ((e.clientX - rect.left) / rect.width) * geom.W;
+    return Math.max(0, Math.min(geom.n - 1, Math.floor((px - geom.m.l) / geom.cw)));
+  }
+
+  function hoverAt(e) {
+    if (!geom || !S.result || S.view !== "chart") return;
+    const f = S.result.forecast, i = idxFromEvent(e), svg = $("#chart svg");
+    const x = geom.m.l + (i + 0.5) * geom.cw;
+    const ymax = Math.max(250, Math.ceil((Math.max(...f.map((q) => q.predicted_demand_kw)) * 1.06) / 50) * 50);
+    const plotB = geom.H - 68, y = geom.m.t + (1 - f[i].predicted_demand_kw / ymax) * (plotB - geom.m.t);
+    const xh = svg.querySelector("#xh"), hm = svg.querySelector("#hm");
+    xh.setAttribute("x1", x); xh.setAttribute("x2", x); xh.style.display = "";
+    hm.setAttribute("cx", x); hm.setAttribute("cy", y); hm.style.display = "";
+    const tip = $("#tip"), box = $("#chartbox").getBoundingClientRect(), sr = svg.getBoundingClientRect();
+    tip.innerHTML = tipHtml(f[i]); tip.style.display = "block";
+    const tx = (sr.left - box.left) + (x / geom.W) * sr.width, tw = tip.offsetWidth;
+    tip.style.left = Math.max(0, Math.min(tx + 14, box.width - tw)) + "px";
+    tip.style.top = Math.max(0, (sr.top - box.top) + (y / geom.H) * sr.height - tip.offsetHeight - 12) + "px";
+  }
+  function hoverEnd() {
+    const svg = $("#chart svg"); if (!svg) return;
+    ["#xh", "#hm"].forEach((id) => { const el = svg.querySelector(id); if (el) el.style.display = "none"; });
+    $("#tip").style.display = "none";
+  }
+  function setSel(i) {
+    if (!S.result) return;
+    S.sel = Math.max(0, Math.min(S.result.forecast.length - 1, i));
+    renderCards(); placeSelection();
+  }
+
+  const chart = $("#chart");
+  chart.addEventListener("pointermove", hoverAt);
+  chart.addEventListener("pointerleave", hoverEnd);
+  chart.addEventListener("pointerdown", (e) => { if (S.result && geom) { setSel(idxFromEvent(e)); hoverAt(e); } });
+  chart.addEventListener("keydown", (e) => {
+    if (!S.result) return;
+    const k = e.key;
+    if (k === "ArrowRight" || k === "ArrowUp") { e.preventDefault(); setSel(S.sel + 1); }
+    else if (k === "ArrowLeft" || k === "ArrowDown") { e.preventDefault(); setSel(S.sel - 1); }
+    else if (k === "Home") { e.preventDefault(); setSel(0); }
+    else if (k === "End") { e.preventDefault(); setSel(S.result.forecast.length - 1); }
+  });
+
+  // ---------- table view ----------
+  function renderTable() {
+    const r = S.result; if (!r) return;
+    $("#tablebox").innerHTML = `<div class="tablewrap"><table><thead><tr><th>Time</th><th class="n">Demand (kW)</th><th>Grid mode</th><th class="n">Battery (%)</th><th>Alert</th></tr></thead><tbody>${
+      r.forecast.map((x) => `<tr class="${x.overload_alert ? "over" : ""}"><td>${dayOf(x.timestamp)} ${hhmm(x.timestamp)}</td><td class="n">${fmt1(x.predicted_demand_kw)}</td><td>${esc(x.grid_mode)}</td><td class="n">${fmt1(x.battery_soc_pct)}</td><td>${x.overload_alert ? "Critical overload" : "None"}</td></tr>`).join("")
+    }</tbody></table></div>`;
+  }
+  function setView(v) {
+    S.view = v;
+    $("#vChart").setAttribute("aria-pressed", v === "chart");
+    $("#vTable").setAttribute("aria-pressed", v === "table");
+    $("#chart").hidden = v !== "chart"; $("#tablebox").hidden = v !== "table";
+    $("#legend").hidden = v !== "chart"; $("#hint").hidden = v !== "chart";
+    if (v === "chart") drawChart();
+  }
+  $("#vChart").onclick = () => setView("chart");
+  $("#vTable").onclick = () => setView("table");
+
+  // ---------- tabs and wiring ----------
+  function setTab(t) {
+    S.tab = t;
+    $("#tabUp").setAttribute("aria-selected", t === "up");
+    $("#tabForm").setAttribute("aria-selected", t === "form");
+    $("#panUp").hidden = t !== "up"; $("#panForm").hidden = t !== "form";
+  }
+  $("#tabUp").onclick = () => setTab("up");
+  $("#tabForm").onclick = () => setTab("form");
+  $("#sample").onclick = loadSample;
+  $("#start").addEventListener("input", labelFormRows);
+  $("#run").onclick = run;
+  $("#clearLog").onclick = () => { logs = []; try { localStorage.removeItem("mg_logs"); } catch (e) { /* ignore */ } renderLog(); };
+  $("#file").addEventListener("change", (e) => readFile(e.target.files[0]));
+  const drop = $("#drop");
+  ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => readFile(e.dataTransfer.files[0]));
+
+  let rt = null;
+  window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(drawChart, 120); });
+
+  // ---------- start ----------
+  buildFormRows();
+  loadSampleSilently();
+  renderLog();
+  $("#chart").innerHTML = '<div class="loading">Running the first forecast…</div>';
+  log("info", "Dashboard opened.");
+  run();
+
+  function loadSampleSilently() {
+    $("#start").value = SAMPLE.start;
+    [...tbody.rows].forEach((tr, i) => { for (let c = 0; c < 3; c++) tr.cells[c + 1].firstChild.value = SAMPLE.rows[i][c]; });
+    labelFormRows();
+  }
+})();
+</script>
+</body>
+</html>

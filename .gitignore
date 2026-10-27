@@ -2,4 +2,15 @@
 *.env
 __pycache__/
 predictions.csv
+my_test_input.csvzoho_refresh_token.txt
+set_env.ps1
+zoho_refresh_token.txt
+microgrid-app/libs/
+
+set_env.ps1
+zoho_refresh_token.txt
+microgrid-app/libs/
+__pycache__/
+predictions.csv
+
 my_test_input.csv

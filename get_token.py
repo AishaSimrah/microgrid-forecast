@@ -9,5 +9,12 @@ r = requests.post(
         "client_secret": os.environ["ZOHO_CLIENT_SECRET"],
         "code": os.environ["ZOHO_CODE"],
     },
+    timeout=30,
 )
-print(r.json())
+j = r.json()
+if "refresh_token" in j:
+    with open("zoho_refresh_token.txt", "w") as f:
+        f.write(j["refresh_token"])
+    print("OK: refresh token saved to zoho_refresh_token.txt")
+else:
+    print({k: ("<hidden>" if "token" in k else v) for k, v in j.items()})

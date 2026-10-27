@@ -5,7 +5,7 @@ import pandas as pd
 import requests
 
 
-QUICKML_ENDPOINT_URL = "YOUR_PUBLISHED_QUICKML_ENDPOINT_URL_HERE"
+QUICKML_ENDPOINT_URL = "https://microgrid-api-50047158873.development.catalystappsail.in/predict"
 
 
 def predict(input_df: pd.DataFrame):
